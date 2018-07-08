@@ -1,0 +1,354 @@
+#include <iostream>
+#include <time.h>
+#include <string>
+#include <vector>
+#include <fstream>
+
+using namespace std;
+
+#define MAX_N 510
+#define MAX_K  55
+#define DEFAULT 100000000
+
+int N = 0;     //图实际顶点数
+const int K = 49;		//颜色数量
+
+int Graph[MAX_N][MAX_N]{ 0 };
+int adjacent_color_table[MAX_N][MAX_K]{ 0 };
+int tabutenure_table[ MAX_N ][MAX_K] {0};
+
+
+int neighboor[MAX_N][MAX_N]{ 0 };     //邻居结构
+
+int vertex_color[MAX_N+1]{ 0 };   //存储每个顶点染的颜色
+
+int f = DEFAULT, best_f = DEFAULT;   //f代表的是冲突边的条数
+int iter = 0;           //迭代次数
+
+void split(const string& src, const string& delim, vector<string>& dest);       //按照空格切分每行
+void creat_Graph();        //创建图的邻接矩阵
+//void init_color_set();      //初始化颜色集合   后面只需要部分修改就好
+void init_adjacent_color_table();              //初始化邻接颜色表
+void update_adjacent_color_table(int vertex, int old_color,int color);           //更新邻接颜色表
+int count_conflict_edges();                  //统计冲突边的数量
+
+int delta;                  //记录最小的Δ
+int  vertex;				//记录最小Δ对应的要移动的顶点序号
+int move_color;				//move移动的vertex移至move_color集合
+int old_color;
+int equal_delta[2000][2];           //存储非禁忌move的最小Δ
+int equal_tabu_delta[2000][2];		//存储禁忌move的最小Δ
+void choose_move();                     //选择 应当 move 哪一个
+void move();
+void tabusearch();
+void main() {
+	tabusearch();
+	/*creat_Graph();
+	init_color_set();
+	init_adjacent_color_table();
+	f = count_conflict_edges();
+	while (f > 0 && iter < DEFAULT) {
+		choose_move();
+		move();
+		iter++;
+	}*/
+	//cout << color_set[15]->vertex << " ";
+
+	//adjacent color table
+	//for (int i = 1; i <= N; i++) {
+	//	for (int j = 1; j <= K; j++) {
+	//		cout << adjacent_color_table[i][j] << " ";
+	//	}
+	//	cout << endl;
+	//}
+
+	//color set
+	//for (int i = 1; i <= K; i++) {		
+	//	Node * node = color_set[i]->next;
+	//	cout << "color :" << i << "  verrtex: ";
+	//	while (node) {
+	//		cout << node->vertex << " ";
+	//		node = node->next;
+	//	}
+	//	cout << endl;
+	//}
+
+	//choose_move();
+	//move();
+	////cout << "vertex " << vertex << "old color" << vertex_color[vertex] << endl;
+	//update_color_set(vertex, vertex_color[vertex], move_color);
+
+	//choose_move();
+	//move();
+	//f = count_conflict_edges();
+	//cout << f << endl;
+	system("pause");
+	return ;
+}
+
+//每行按空格分割string 获取数据
+void split(const string& src, const string& delim, vector<string>& dest) {
+	dest.clear();
+	string str = src;
+	string::size_type start = 0, index;
+	string substr;
+	index = str.find(delim, start);
+	while (index != string::npos) {
+		substr = str.substr(start, index - start);
+		dest.push_back(substr);
+		start = index + 1;
+		index = str.find(delim, start);
+	}
+	substr = str.substr(start, index);
+	dest.push_back(substr);
+}
+
+//读取文件 获得数据并创建图的邻接矩阵
+void creat_Graph() {
+	ifstream readFile("C:\\Users\\Dreamker\\Desktop\\learning\\DSJC\\DSJC\\DSJC500.5.col", ios::in);
+	string textline;
+	bool start = false;
+	string  delim(" ");
+	vector<string> data;
+	int v1, v2;
+	if (readFile.good()) {
+		while (!readFile.fail()) {
+			getline(readFile, textline);
+			if (start&&textline.find("e", 0) != string::npos) {
+				split(textline, delim, data);
+				int v1 = stoi(data[1]);
+				int v2 = stoi(data[2]);
+				Graph[v1][v2] = Graph[v2][v1] = 1;
+			}
+			else {
+				if (textline.find("p edge", 0) != string::npos) {
+					split(textline, delim, data);
+					N = stoi(data[2]);
+					cout << N << endl;
+					start = true;
+				}
+					
+			}
+		}
+
+	}
+	readFile.close();
+
+	//给每个点随机分配颜色  并动态生成node 插入到color set
+	for (int i = 1; i <= N; i++) {
+		int color = rand() % K + 1;        //每个点的颜色
+		vertex_color[i] = color;
+
+	}
+
+	//初始化邻居数组  neighborhood
+	//每一行neighborhood[i][0]存储的是 顶点i的邻居数 后面依次 存储邻居的顶点值
+	int count = 0;
+	for (int i = 1; i <= N; i++) {
+		for (int j = 1; j <= N; j++) {
+			if (Graph[i][j] != 0) {
+				count++;
+				neighboor[i][0] = count;
+				neighboor[i][count] = j;
+			}
+		}
+		count = 0;
+	}
+
+	return;
+}
+
+void init_adjacent_color_table() {
+	//遍历 graph   
+	for (int i = 1; i <= N; i++) {
+		for (int j = 1; j < i; j++) {
+			if (Graph[i][j] != 0) {
+				int color_i = vertex_color[i];
+				int color_j = vertex_color[j];
+				++adjacent_color_table[i][color_j];
+				++adjacent_color_table[j][color_i];
+			}
+		}
+	}
+
+	/*for (int i = 1; i <= N; i++) {
+		for (int j = 1; j <= K; j++) {
+			cout << adjacent_color_table[i][j] << " ";
+		}
+		cout << endl;
+	}
+	*/
+	return;
+}
+
+void update_adjacent_color_table(int vertex, int old_color, int color) {
+	//old_color 那一列 vertex 的邻居 都要 -- 
+	//color  那一列 vertex的邻居 都要 ++
+	for (int i = 1; i <= N; i++) {
+		if (Graph[i][vertex] != 0) {
+			adjacent_color_table[i][old_color]--;
+			adjacent_color_table[i][color]++;
+		}
+	}
+	return;
+}
+
+int count_conflict_edges() {
+	//直接遍历每条边  利用 vertex_color 数组查看两顶点是否同色
+	int count = 0;
+	//for(int i=1;i<=N;i++)
+	//	for (int j = 1; j < i; j++) {
+	//		if (Graph[i][j] != 0) {
+	//			if (vertex_color[i] == vertex_color[j]) {
+	//				count++;
+	//				//cout << "conflict edge " << i << "  " << j << endl;
+	//			}
+	//				
+	//		}
+	//	}
+	for (int i = 1; i <= N; i++) {
+			count += adjacent_color_table[i][vertex_color[i]];
+	}
+	count /= 2;
+	return count;
+}
+
+void choose_move() {
+	move_color = 0;       //移动后的 颜色
+	int current_color = 0;		//当前点的染色
+	vertex = 0;             
+	delta = DEFAULT;        //记录非禁忌的最小Δ
+	int tabu_delta = DEFAULT;   //记录禁忌的最小Δ
+	int count = 0;              //记录非禁忌最小Δ的个数
+	int tabu_count = 0;			//记录禁忌最小Δ的个数
+	int A = best_f - f;         //   f + delta < best_f
+	int temp = DEFAULT;
+
+	int *  adj_color_h;       //邻接表行指针
+	int * tabu_h;             //禁忌表行指针
+
+	//选择移动的边 是在adjacent_color_table 表中计算选择的 
+	//遍历adjacent_color_table 过程中需要分为 禁忌和非禁忌
+	//如果  tabu_delta < delta 需要判断是否能解禁处理
+	for (vertex = 1; vertex <= N; vertex++) {		
+		current_color = vertex_color[vertex];
+		//判断当前点需不需要处理冲突 
+		if (adjacent_color_table[vertex][current_color] > 0) {			
+			for (move_color=1; move_color <= K; move_color++) {
+				if (move_color != current_color) {					
+					temp = adjacent_color_table[vertex][move_color] - adjacent_color_table[vertex][current_color];
+					//非禁忌移动
+					if (tabutenure_table[vertex][move_color] <= iter) {
+						if (temp <= delta) {
+							if (temp < delta) {
+								delta = temp;
+								count = 0;
+							}
+							count++;
+							equal_delta[count - 1][0] = vertex;
+							equal_delta[count - 1][1] = move_color;
+						}
+					}//禁忌移动
+					else {
+						if (temp <= tabu_delta) {
+							if (temp < tabu_delta) {
+								tabu_delta = temp;
+								tabu_count = 0;
+							}
+							tabu_count++;
+							equal_tabu_delta[tabu_count - 1][0] = vertex;
+							equal_tabu_delta[tabu_count - 1][1] = move_color;
+						}
+					}					
+				
+				}
+			}
+		}
+	};
+	temp = 0;
+	if (  tabu_delta < A  && tabu_delta < delta ) {
+		delta = tabu_delta;
+		temp = rand() % tabu_count ;
+		vertex = equal_tabu_delta[temp][0];
+		move_color = equal_tabu_delta[temp][1];
+	}
+	else {			
+			temp = rand() % count;
+			vertex = equal_delta[temp][0];
+			move_color = equal_delta[temp][1];		
+	}
+}
+
+//最简 --目前 不知道还能哪里优化
+void move() {
+	//color set是需要更新一下的
+	int old_color = vertex_color[vertex];
+	//vertex_color 也是需要更新的
+	vertex_color[vertex] = move_color;
+	//更新冲突值
+	f = f + delta;
+	//更新历史最好冲突
+	if (f < best_f)
+		best_f = f;
+	//更新禁忌表
+	tabutenure_table[vertex][old_color] = f + rand() % 10 + iter;
+
+	//for (int i = 1; i <= N; i++) {
+	//	for (int j = 1; j <= K; j++) {
+	//		if (tabutenure_table[i][j] != 0)
+	//			--tabutenure_table[i][j];
+	//		//cout << tabutenure_table[i][j] << " ";
+	//	}
+	//	//cout << endl;
+	//}	
+
+	//更新邻接颜色表
+	//update_adjacent_color_table(vertex, old_color, move_color);
+
+	if (neighboor[vertex][0] != 0) {
+		for (int i = 1; i <= neighboor[vertex][0]; i++) {
+			adjacent_color_table[neighboor[vertex][i]][old_color]--;
+			adjacent_color_table[neighboor[vertex][i]][move_color]++;
+		}
+	}
+}
+
+void tabusearch() {
+	double start_time, end_time, time;
+
+	creat_Graph();
+	//init_color_set();
+	init_adjacent_color_table();
+
+	//for (int i = 1; i <= N; i++) {
+	//	for (int j = 1; j <= K; j++) {
+	//		cout << adjacent_color_table[i][j] << " ";
+	//	}
+	//	cout << endl;
+	//}
+
+	f = count_conflict_edges();
+	cout << "start here:" << endl;
+	iter = 0;
+	start_time = clock();
+	while (f > 0 && iter < DEFAULT) {
+		choose_move();
+		move();
+		iter++;
+		//cout << iter << "  " <<f<<endl;
+	}
+	end_time = clock();
+
+	time = (end_time - start_time) / CLOCKS_PER_SEC;
+	cout << "end here" << endl;
+
+	cout << "是否找出解?";
+	if (f == 0) {
+		cout << "是" << endl;
+	}
+	else {
+		cout << "否  "<<f <<endl;
+	}
+	cout << "迭代次数： " << iter<<"  迭代时间（s） "<<time<<"   迭代频率：  "<<(double)iter/time <<endl ;
+	return;
+}
